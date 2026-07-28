@@ -1,0 +1,71 @@
+# gitleaks configuration for handmade-tax
+# 目的: 平文の API キー・トークン・秘密鍵を機械的に弾く。
+# 正本は age 暗号化ファイル(*.age)のみ。平文の秘密は repo に入れない。
+#
+# 方針:
+#  - gitleaks 同梱のデフォルトルール群を継承(useDefault)
+#  - 加えて汎用 API キー/トークン/秘密鍵の検出ルールを追加
+#  - allowlist は example / test ファイルとプレースホルダのみ。実鍵は除外しない。
+
+title = "handmade-tax gitleaks config"
+
+[extend]
+# gitleaks 内蔵のデフォルトルール(AWS, GCP, Stripe, GitHub, Slack 等)を継承
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# 追加ルール: 汎用シークレット
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "ga-generic-api-key"
+description = "Generic API key / secret assignment"
+# api_key = "xxxx", apikey: 'xxxx', "secret" => "xxxx" などの代入を検出
+regex = '''(?i)(?:api[_-]?key|api[_-]?secret|secret[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\s*[:=]\s*['"][0-9a-zA-Z\-_.=/+]{16,}['"]'''
+keywords = ["api_key", "apikey", "secret", "access_token", "auth_token", "client_secret"]
+entropy = 3.0
+
+[[rules]]
+id = "ga-private-key-block"
+description = "Private key PEM block"
+regex = '''-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----'''
+keywords = ["BEGIN", "PRIVATE KEY"]
+
+[[rules]]
+id = "ga-age-identity"
+description = "age identity (X25519 secret key)"
+# age-keygen の出力する秘密鍵。AGE-SECRET-KEY-1... 形式。復号鍵がコミットされたら即弾く。
+regex = '''AGE-SECRET-KEY-1[0-9A-Z]{50,}'''
+keywords = ["AGE-SECRET-KEY-1"]
+
+[[rules]]
+id = "ga-bearer-token"
+description = "Bearer / long opaque token"
+regex = '''(?i)bearer\s+[0-9a-zA-Z\-_.=]{20,}'''
+keywords = ["bearer"]
+entropy = 3.5
+
+# ---------------------------------------------------------------------------
+# allowlist: example / test のみ。実鍵は決して除外しない。
+# ---------------------------------------------------------------------------
+[allowlist]
+description = "Allow only example/test placeholders — never real secrets"
+
+# example / sample / template ファイル、テストフィクスチャ、age 暗号文(*.age)を許可。
+# *.age は暗号文なので安全(中身は読めない)。それ以外の実鍵パスは除外しない。
+paths = [
+  '''(^|/)[^/]*\.example($|\..*)''',
+  '''(^|/)[^/]*\.sample($|\..*)''',
+  '''(^|/)[^/]*\.template($|\..*)''',
+  '''(^|/)[^/]*\.age$''',
+  '''(^|/)fixtures?/''',
+  '''(^|/)testdata/''',
+  '''(^|/)__tests__/''',
+  '''(^|/)__fixtures__/''',
+]
+
+# プレースホルダ文字列(値が <...> / xxxx / your-... / changeme / example のもの)は許可
+regexes = [
+  '''(?i)['"](?:<[^>]+>|x{8,}|your[-_].+|change[-_]?me|placeholder|example|dummy|test[-_].+|todo)['"]''',
+  '''AGE-SECRET-KEY-1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX''',
+]

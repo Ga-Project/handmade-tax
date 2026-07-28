@@ -1,0 +1,13 @@
+# handmade-tax — pnpm 設定。
+# pnpm 11 は未許可の依存ビルドスクリプトを ERR_PNPM_IGNORED_BUILDS で hard-fail させる。
+# このリポジトリ単体で install / build が通るよう、ネイティブビルドの実行可否をここで明示する
+# (許可は必要最小限にとどめる = 供給網の最小許可)。
+#
+#   unrs-resolver: eslint-config-next が使うリゾルバ(ネイティブ binding)。
+#                  `next lint` / install の build script に必要 → 許可。
+#   sharp: Next 15 の既定画像プロセッサ。当製品は images.unoptimized で next/image の最適化を
+#          無効化しており実行時に呼ばず、static export の出荷物にも含めない。ビルド不要 → 明示的に不許可。
+#          (明示的に false と決めることで ERR_PNPM_IGNORED_BUILDS の hard-fail を避ける)
+allowBuilds:
+  sharp: false
+  unrs-resolver: true

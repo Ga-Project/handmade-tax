@@ -1,0 +1,23 @@
+# handmade-tax — 生成プロダクトの .gitignore
+# 秘密: secrets.age(暗号文)と age.recipient(公開鍵)は追跡する。それ以外は除外。
+
+# 平文の秘密・復号鍵(絶対にコミットしない)
+.env
+.env.*
+!.env.*.example
+*.identity
+*identity*
+.age-identity-path
+SECRETS_DIR/
+secrets.env
+
+# Next.js / Node
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# OS / logs
+.DS_Store
+*.log

@@ -1,0 +1,815 @@
+/* ハンドメ確申コンバータ — デザインシステム「換算レーン / Convert Lane」
+ *
+ * 比喩: 左→右へ一方向に流れる横型コンベア。ページの背骨は LANE RAIL（①取込 ▸ ②割当 ▸ ③書き出し）で、
+ * その下に「今のステーションだけ」を映す 1 枚の WORK PLATE を置く。縦積みカード群でも hero でも
+ * ダークコンソールでも台帳/和/明朝でもない。lime のエッジルールが流れの向きを示す。
+ * すべての金額・件数・日付は等幅 + tabular-nums。 */
+
+/* ---- 機能的リセット -------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+* {
+  margin: 0;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---- カラートークン（AA 検証済み・light 既定 / dark 上書き）----------------- */
+:root {
+  --bg: #f4f5f2;
+  --surface: #fdfdfc;
+  --fg: #1b1e1c;
+  --muted: #555c58;
+  --border: #dde0da;
+  --accent: #b4db1f;
+  --accent-fg: #1b1e1c;
+  --accent-ink: #4e6b0e;
+  /* success/warning は 11–12px 太字のバッジ文字にも使うため、light では AA(4.5:1) を満たすよう
+     一段濃くする（薄い tint 上でも本文しきい値をクリアする）。dark はそのまま。 */
+  --success: #146b47;
+  --warning: #7a4e0b;
+  --error: #c0362b;
+
+  --font-ui:
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", Meiryo, system-ui, sans-serif;
+  --font-mono:
+    "SFMono-Regular", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+  --lane-fill: 0; /* レール進捗（0..1）。node の状態で JS から更新 */
+}
+
+:root[data-theme="dark"] {
+  --bg: #161a18;
+  --surface: #1f2421;
+  --fg: #ecefe9;
+  --muted: #9ba49e;
+  --border: #333a35;
+  --accent: #c2e23e;
+  --accent-fg: #161a18;
+  --accent-ink: #b7d95a;
+  --success: #4fc08a;
+  --warning: #e0a73c;
+  --error: #e8776b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161a18;
+    --surface: #1f2421;
+    --fg: #ecefe9;
+    --muted: #9ba49e;
+    --border: #333a35;
+    --accent: #c2e23e;
+    --accent-fg: #161a18;
+    --accent-ink: #b7d95a;
+    --success: #4fc08a;
+    --warning: #e0a73c;
+    --error: #e8776b;
+  }
+}
+
+/* ---- ベース ---------------------------------------------------------------- */
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono,
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 数値は右寄せ + ¥ 前置（.amount）。 */
+.amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+a {
+  color: var(--accent-ink);
+}
+
+/* フォーカス可視（lime 塗り上では暗い --fg で縁取り）。 */
+:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+.on-accent:focus-visible {
+  outline-color: var(--fg);
+}
+
+/* skip-link（フォーカス時のみ可視）。 */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 50;
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.skip:focus {
+  left: 12px;
+}
+
+/* ---- レイアウト外殻 -------------------------------------------------------- */
+.shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 20px 120px;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0 16px;
+}
+.brand {
+  font-family: var(--font-ui);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.brand small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  margin-top: 2px;
+}
+.theme-toggle {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+/* プライバシー保証バッジ。 */
+.assure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--success);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+/* ---- LANE RAIL ------------------------------------------------------------- */
+.rail {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 8px 0 20px;
+  position: relative;
+}
+.rail-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  padding-top: 4px;
+}
+/* ノード間のフローライン（track / progress）。 */
+.rail-node::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+.rail-node:first-child::before {
+  display: none;
+}
+.rail-node.seg-active::before,
+.rail-node.seg-done::before {
+  background: linear-gradient(90deg, var(--accent) var(--seg, 100%), var(--border) 0);
+}
+/* chevron triple（装飾・アクティブ区間のみ流れる）。 */
+.rail-node.seg-active::after {
+  content: "›››";
+  position: absolute;
+  top: 6px;
+  left: -50%;
+  width: 100%;
+  text-align: center;
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  animation: chevron 2s linear infinite;
+  z-index: 1;
+}
+/* 先頭ノードの左には区間が無い。chevron を出すと孤立した装飾になるので抑止する
+   （chevron は流入する区間 = 前ノードとの間にだけ出す）。 */
+.rail-node:first-child.seg-active::after {
+  display: none;
+}
+.dot {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  color: var(--muted);
+  z-index: 2;
+  transition: transform 160ms ease-out;
+  cursor: pointer;
+}
+/* 視覚は 28px の円のまま、当たり判定を 44px に広げる（inset -8px → 28+16=44）。 */
+.dot::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+.dot:disabled {
+  cursor: default;
+}
+.rail-node.is-active .dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  transform: scale(1.08);
+}
+.rail-node.is-done .dot {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--success);
+}
+.rail-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--fg);
+}
+.rail-node:not(.is-active) .rail-name {
+  color: var(--muted);
+}
+.rail-count {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- WORK PLATE ------------------------------------------------------------ */
+.plate {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  padding: 24px;
+}
+.plate h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.plate .sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 18px;
+}
+
+/* ---- ① INTAKE SLOT --------------------------------------------------------- */
+.slot {
+  position: relative;
+  min-height: 104px;
+  display: grid;
+  place-items: center;
+  /* 主要な操作境界なので非テキストコントラスト 3:1 を満たす --accent-ink を使う
+     （lime の --accent は light 背景で 1.5:1 しかなく境界が知覚できない）。 */
+  border-top: 2px dashed var(--accent-ink);
+  border-bottom: 2px dashed var(--accent-ink);
+  border-left: none;
+  border-right: none;
+  background: transparent;
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out;
+}
+.slot .chev {
+  display: block;
+  font-size: 22px;
+  transition: transform 160ms ease-out;
+}
+.slot.drag {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-top-style: solid;
+  border-bottom-style: solid;
+}
+/* ファイル入力は opacity:0 でフォーカスリングが見えないため、スロット全体に可視表示を出す。 */
+.slot:focus-within {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+.slot.drag .chev {
+  transform: translateY(2px);
+}
+.slot input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 8px 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.chip.err {
+  border-color: var(--error);
+  color: var(--error);
+}
+.chip button {
+  position: relative;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 50%;
+  font-size: 14px;
+}
+/* × は視覚 24px のまま、当たり判定を 48px（24+12+12）に広げて 44px 要件を満たす。 */
+.chip button::after {
+  content: "";
+  position: absolute;
+  inset: -12px;
+}
+
+.platform-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0;
+}
+.pchip {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- ② 換算表（mapping table）--------------------------------------------- */
+/* 表は横スクロールコンテナで包む。table を width:100% のままにすると縮んで 1 文字/行に
+   潰れるため、min-width を与えて .map-wrap が実際に横スクロールするようにする（狭幅で操作可能に）。 */
+.map-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.map-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.map-table th,
+.map-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.map-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.map-table .src {
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.map-table .arrow {
+  color: var(--accent-ink);
+  text-align: center;
+  font-weight: 700;
+}
+.map-table select {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0 10px;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.tag.auto {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.tag.check {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.acct-config {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+.field label {
+  display: block;
+  margin-bottom: 4px;
+}
+.field input,
+.field select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0 10px;
+}
+
+/* ---- ④ 集計 ---------------------------------------------------------------- */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.tile .label {
+  margin-bottom: 6px;
+}
+.tile .data-lg {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 600;
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 6px;
+  display: inline-block;
+}
+
+.matrix {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.matrix th,
+.matrix td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.matrix thead th {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+  text-align: right;
+}
+.matrix thead th:first-child {
+  text-align: left;
+}
+.matrix th[scope="row"] {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+.matrix td {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.matrix tr.total td,
+.matrix tr.total th,
+.matrix td.total {
+  font-weight: 700;
+  border-top: 1px solid var(--fg);
+}
+.bar {
+  height: 6px;
+  background: var(--accent);
+  border-radius: 3px;
+  margin-top: 4px;
+}
+
+/* ---- ⑤ 排出トレイ（export tray）------------------------------------------- */
+.tray {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  z-index: 30;
+}
+.btn {
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 0 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.btn.secondary {
+  background: transparent;
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
+}
+.btn:disabled {
+  background: var(--border);
+  color: var(--muted);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+.tray-done {
+  color: var(--success);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---- 状態: ローディング / エラー / 復元 ------------------------------------ */
+.skeleton {
+  height: 40px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--border) 25%,
+    color-mix(in srgb, var(--border) 40%, transparent) 37%,
+    var(--border) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+  margin-bottom: 10px;
+}
+.loading-note {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  font-size: 13px;
+}
+.error-box {
+  border: 1px solid var(--error);
+  border-radius: 10px;
+  padding: 14px;
+  color: var(--error);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+/* 変換できなかった行の可視化（サイレントなデータ欠落を防ぐ）。 */
+.warn-box {
+  border: 1px solid var(--warning);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 16px 0;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+.warn-head {
+  color: var(--warning);
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.warn-more {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+.issues-table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.issues-table th,
+.issues-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.issues-table thead th {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.issues-table td.src {
+  color: var(--muted);
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+.restore {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.restore .acts {
+  display: flex;
+  gap: 8px;
+}
+.linkbtn {
+  border: none;
+  background: transparent;
+  color: var(--accent-ink);
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+}
+
+/* ---- 法務・注意書き -------------------------------------------------------- */
+.notice {
+  margin-top: 22px;
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--muted);
+}
+.notice strong {
+  color: var(--fg);
+}
+
+/* ---- モバイル -------------------------------------------------------------- */
+@media (max-width: 620px) {
+  .tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  /* rail は ●─●─● のコンパクトステッパに畳む。 */
+  .rail-name,
+  .rail-count {
+    display: none;
+  }
+  .rail-node.is-active .rail-name {
+    display: block;
+    position: absolute;
+    top: 34px;
+    white-space: nowrap;
+  }
+  /* export tray はフル幅の下部固定バーにする。 */
+  .tray {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-radius: 12px 12px 0 0;
+    justify-content: stretch;
+  }
+  .tray .btn {
+    flex: 1;
+  }
+  .shell {
+    padding-bottom: 96px;
+  }
+}
+
+/* ---- モーション（reduced-motion で停止）------------------------------------ */
+@keyframes chevron {
+  0% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
