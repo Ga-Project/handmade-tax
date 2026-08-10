@@ -1,20 +1,41 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import {
+  SITE_URL,
+  SITE_TITLE,
+  SITE_DESCRIPTION,
+  absoluteUrl,
+} from "@/lib/site";
 
-const title =
-  "ハンドメ確申コンバータ — 販路の売上CSVを会計ソフトの仕訳インポート用に整形";
-const description =
-  "minne・Creema・BASE・メルカリなどの売上CSVを、会計ソフトの仕訳インポート用CSVと月別×販路の集計に整形します（取込形式・エンコーディングはソフト側の仕様に合わせた調整が必要な場合があります）。消費税の税区分は付与しません。すべてブラウザ内で処理し、CSVはサーバーに送信しません。税務申告の代行はしません。";
+const title = SITE_TITLE;
+const description = SITE_DESCRIPTION;
+
+const ogAlt =
+  "販路ごとの売上CSVを、会計ソフト（freee・マネーフォワード・弥生）の仕訳CSVと月別集計に整形する";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title,
   description,
+  alternates: { canonical: SITE_URL },
   openGraph: {
     title,
     description,
     type: "website",
     locale: "ja_JP",
+    url: SITE_URL,
+    images: [
+      { url: absoluteUrl("og.png"), width: 1200, height: 630, alt: ogAlt },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+    // 文字列ではなくオブジェクトで渡す（文字列配列だと twitter:image:alt が出力されず、
+    // X 上で共有カード画像に代替テキストが付かない）。
+    images: [{ url: absoluteUrl("og.png"), alt: ogAlt }],
   },
 };
 

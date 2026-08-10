@@ -38,9 +38,16 @@ jobs:
       - name: Scan full history
         run: gitleaks detect --no-banner --redact
 
-  build:
-    name: Build (static export)
-    needs: secret-scan # スキャン通過が前提。fail 時は skip され公開されない。
+  # ---------------------------------------------------------------------------
+  # 公開検査ゲート（必須）。
+  # この製品は basePath 未設定のまま公開され、HTML は 200 で返るのに CSS も JS も 404
+  # という状態で稼働していた。変換は全て JS なので、訪問者は何もできない状態だった。
+  # 生成物を読む検査は out/ が要るので、テストの前に公開と同じ条件でビルドしておく。
+  # ここでビルドしないと out/ が無く、検査が静かにスキップされたまま CI が緑になる
+  # （＝安全網があるつもりで穴が開く）。
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Test & Typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +58,33 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /handmade-tax
+      - run: pnpm test # 生成物のアセット/URL検査と、表示↔構造化データの照合を含む
+        env:
+          # スキップを許さない。前提が崩れていたらテストとして落とす。
+          HANDMADE_TAX_REQUIRE_PUBLISH_CHECK: "1"
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+  build:
+    name: Build (static export)
+    # スキャンと公開検査の両方が PASS していることが前提。fail 時は skip され公開されない。
+    needs: [secret-scan, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # プロジェクトページ（<owner>.github.io/handmade-tax/）へサブパス配信するため basePath を注入。
+      # ルート配信（ユーザー/組織ページ・カスタムドメイン）に切り替える場合はこの env を外す。
+      - run: pnpm build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /handmade-tax
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out

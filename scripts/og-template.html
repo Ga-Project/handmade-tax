@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>ハンドメ確申コンバータ OGP</title>
+    <style>
+      /* OGP 共有カード（1200×630）。
+       *
+       * 本体のデザインシステム「換算レーン / Convert Lane」に合わせる:
+       * 左→右へ一方向に流れる横型コンベア。バラバラの販路CSVがレーンに入り、
+       * 1本の仕訳CSVになって出てくる、という製品の中身そのものを絵にする。
+       * lime のエッジルールが流れの向きを示す。金額・件数は等幅 + tabular-nums。
+       * globals.css の値は読み込まず、この 1 枚のためにトークンを直書きする
+       * （Chrome の headless スクショなのでカスケードを共有しない）。 */
+      :root {
+        --bg: #f4f5f2;
+        --surface: #fdfdfc;
+        --fg: #1b1e1c;
+        --muted: #555c58;
+        --border: #dde0da;
+        --accent: #b4db1f;
+        --accent-ink: #4e6b0e;
+        --font-ui:
+          "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium",
+          Meiryo, system-ui, sans-serif;
+        --font-mono: "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+      }
+
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-ui);
+        /* 紙の目地。レーンの床であることを薄く示す */
+        background-image: linear-gradient(var(--border) 1px, transparent 1px);
+        background-size: 100% 42px;
+      }
+
+      .card {
+        width: 100%;
+        height: 100%;
+        padding: 58px 72px 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ---- 見出し ---- */
+      .eyebrow {
+        font-size: 21px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: var(--accent-ink);
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      /* ルールは .caps の手前で止める。全幅に伸ばすと右上の注記の字を横切る。 */
+      .eyebrow::after {
+        content: "";
+        flex: 1;
+        height: 3px;
+        background: var(--accent);
+        margin-right: 300px;
+      }
+
+      h1 {
+        margin-top: 20px;
+        font-size: 58px;
+        line-height: 1.13;
+        letter-spacing: -0.02em;
+        font-weight: 800;
+      }
+
+      .sub {
+        margin-top: 18px;
+        font-size: 24px;
+        line-height: 1.5;
+        color: var(--muted);
+        max-width: 24em;
+      }
+      /* 製品名。画像だけが転載される経路(スクショ共有・LINE)でも出所が残るようにする。 */
+      .wordmark {
+        margin-top: 22px;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .wordmark span {
+        font-family: var(--font-mono);
+        font-size: 17px;
+        font-weight: 500;
+        color: var(--muted);
+        letter-spacing: 0;
+      }
+      .sub b {
+        color: var(--fg);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      /* ---- 換算レーン ----
+       * 下端に接地させる横型コンベア。入口(バラバラの販路CSV)→変換→出口(1本の仕訳CSV)。
+       * 入口の紙片も出口の箱も必ず下端(630)の外まで伸ばす。途中で終わらせると
+       * 「底の開いた矩形が宙に浮いている」ように見えて、コンベアに乗っている感じが消える。 */
+      .lane {
+        margin-top: auto;
+        height: 212px;
+        display: grid;
+        grid-template-columns: 462px 96px 1fr;
+        align-items: end;
+        gap: 0;
+      }
+
+      .stack {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+      }
+
+      /* 入口: バラバラの販路CSV（高さと色をずらして「揃っていない」ことを見せる） */
+      .chip {
+        background: var(--surface);
+        border: 2px solid var(--border);
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        padding: 15px 16px 70px;
+        font-size: 20px;
+        font-weight: 700;
+        white-space: nowrap;
+        box-shadow: 0 -2px 0 var(--border) inset;
+      }
+      /* 天面の高さと角度だけをずらして「まだ揃っていない」状態を見せる（出口の1本と対比させる）。
+         下端は伸ばして必ずフレーム外へ出すので、translateY は使わない。 */
+      .chip.a {
+        padding-top: 40px;
+        transform: rotate(-1.4deg);
+      }
+      .chip.b {
+        padding-top: 22px;
+        transform: rotate(0.9deg);
+      }
+      .chip.c {
+        padding-top: 48px;
+        transform: rotate(-0.5deg);
+      }
+      .chip.d {
+        padding-top: 12px;
+        transform: rotate(1.6deg);
+      }
+
+      /* 変換部: 入口と出口の間。lime の矢羽根で流れの向きを出す */
+      .convert {
+        align-self: center;
+        justify-self: center;
+        margin-bottom: 22px;
+        position: relative;
+        width: 92px;
+        height: 92px;
+        display: grid;
+        place-items: center;
+      }
+      .convert span {
+        display: block;
+        width: 0;
+        height: 0;
+        border-top: 26px solid transparent;
+        border-bottom: 26px solid transparent;
+        border-left: 30px solid var(--accent);
+      }
+      .convert span:nth-child(1) {
+        opacity: 0.28;
+        position: absolute;
+        left: 2px;
+      }
+      .convert span:nth-child(2) {
+        opacity: 0.6;
+        position: absolute;
+        left: 24px;
+      }
+      .convert span:nth-child(3) {
+        position: absolute;
+        left: 46px;
+      }
+
+      /* 出口: 1本に揃った仕訳CSV */
+      .out {
+        background: var(--surface);
+        border: 2px solid var(--fg);
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
+        padding: 20px 26px 30px;
+        box-shadow: 0 6px 0 var(--accent) inset;
+      }
+      .out .name {
+        font-size: 23px;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+      }
+      .out .rows {
+        margin-top: 13px;
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 17px;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+      .out .rows b {
+        color: var(--fg);
+        font-weight: 600;
+      }
+
+      .caps {
+        position: absolute;
+        top: 66px;
+        right: 72px;
+        text-align: right;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .caps em {
+        font-style: normal;
+        color: var(--accent-ink);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="eyebrow">ハンドメイド作家の確定申告</div>
+      <h1>販路ごとの売上CSVを、<br />会計ソフトの仕訳CSVへ。</h1>
+      <p class="sub">
+        バラバラの列を自動で読み取って、<b>freee・マネーフォワード・弥生</b>の取込用に整形。
+        月別×販路の集計も同時に出ます。
+      </p>
+
+      <div class="wordmark">
+        ハンドメ確申コンバータ <span>ga-project.github.io/handmade-tax</span>
+      </div>
+
+      <div class="caps">
+        <div>登録不要・<em>無料</em></div>
+        <div>CSVはブラウザ内だけで処理</div>
+      </div>
+
+      <div class="lane">
+        <div class="stack">
+          <div class="chip a">minne</div>
+          <div class="chip b">Creema</div>
+          <div class="chip c">BASE</div>
+          <div class="chip d">メルカリ</div>
+        </div>
+
+        <div class="convert"><span></span><span></span><span></span></div>
+
+        <div class="out">
+          <div class="name">仕訳CSV ＋ 月別集計</div>
+          <div class="rows">
+            2026/03/14 売掛金 <b>3,200</b> 売上高<br />
+            2026/03/14 支払手数料 <b>&nbsp;&nbsp;352</b> 売掛金
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

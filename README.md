@@ -45,4 +45,32 @@ Next.js（App Router）。`out/` への static export で配信するためサ�
 pnpm dev                   # http://localhost:3000（ホットリロード）
 pnpm build                 # out/ に静的HTML/CSS/JSを生成
 pnpm test                  # node --test（変換ロジックの単体テスト）
+pnpm og                    # 共有カード public/og.png を作り直す（下記）
 ```
+
+### 配信パスについて
+
+GitHub Pages のプロジェクトページ（`<owner>.github.io/handmade-tax/`）へ配信するため、
+ビルド時に env `NEXT_PUBLIC_BASE_PATH=/handmade-tax` を渡して `basePath`/`assetPrefix` を付けます
+（`.github/workflows/pages.yml` が注入）。**未設定だと `/_next/...` がドメイン直下に解決され、
+CSS も JS も 404 になります。** ローカルで `out/` をポート直下に置いて確認する場合は、
+既定（env なし）の空のままで正しく動きます。ルート配信に切り替える場合はこの env を外します。
+
+### 共有カード（OGP）
+
+`public/og.png`（1200×630）は `scripts/og-template.html` を headless Chrome で撮って生成し、
+成果物をコミットします（Pages の CI に Chrome が無いためビルド時生成はしません）。
+
+```bash
+pnpm og                    # scripts/og-template.html → public/og.png
+```
+
+テンプレートを変えたら **必ず `pnpm og` で作り直してください**。忘れると古いカードが配信され続けるため、
+`test/og.test.mjs` がテンプレートのハッシュを固定して検知します（落ちたら再生成してハッシュを更新）。
+
+### よくある質問と構造化データ
+
+FAQ の文言は `lib/faq.ts` が単一の出所です。ページの表示（`app/page.tsx` の `FaqSection`）と
+`FAQPage` 構造化データ（`lib/structured-data.ts`）の両方がここを読みます。FAQPage は
+**そのページに実際に表示されている内容**でなければならないため、文言を別々に持たせないでください
+（`test/faq.test.mjs` がビルド済み `out/` に対して照合します）。

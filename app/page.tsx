@@ -8,6 +8,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { decodeBytes } from "@/lib/decode";
 import { parseCsv } from "@/lib/csv";
+import { FAQ } from "@/lib/faq";
+import {
+  buildStructuredData,
+  serializeStructuredData,
+} from "@/lib/structured-data";
 import {
   detectPlatform,
   channelLabelFor,
@@ -415,12 +420,14 @@ export default function Home() {
       </a>
       <div className="shell">
         <header className="topbar">
-          <div className="brand">
+          {/* 製品名はページの h1。見出し階層の起点が無いと、支援技術でも検索でも
+              このページが何のページなのかを示すものが無くなる（見た目は .brand のまま）。 */}
+          <h1 className="brand">
             ハンドメ確申コンバータ
             <small>
               販路の売上CSV → 会計ソフトの仕訳インポート用CSV・月別集計
             </small>
-          </div>
+          </h1>
           <button
             type="button"
             className="theme-toggle"
@@ -554,6 +561,8 @@ export default function Home() {
           取り込んでください。販路プリセットは目安であり
           正確さを保証するものではありません。CSVはブラウザ内で処理され、サーバーに送信されません。
         </p>
+
+        <FaqSection />
       </div>
 
       {/* 排出トレイ（常設・書き出しCTA） */}
@@ -588,6 +597,35 @@ export default function Home() {
         )}
       </div>
     </>
+  );
+}
+
+/* ---- よくある質問（常時表示）---------------------------------------------
+ * 内容は lib/faq.ts を単一の出所にしていて、layout.tsx の FAQPage 構造化データにも同じ配列を渡す。
+ * 検索結果に出る文とページに書いてある文が食い違わないよう、表示と構造化データを1箇所に束ねる。
+ * details/summary で開閉するので、追加の JS も状態も要らない。 */
+function FaqSection() {
+  return (
+    <section className="faq" aria-labelledby="faq-head">
+      {/* FAQPage 構造化データは、FAQ を実際に描画しているこのコンポーネントから出す。
+          layout に置くと 404 など FAQ が無いルートにも出てしまうため（表示していない
+          内容のマークアップはポリシー違反）、置き場所で「表示とセット」を保証する。 */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: serializeStructuredData(buildStructuredData()),
+        }}
+      />
+      <h2 id="faq-head" className="faq-head">
+        よくある質問
+      </h2>
+      {FAQ.map((item) => (
+        <details key={item.q} className="faq-item">
+          <summary>{item.q}</summary>
+          <p>{item.a}</p>
+        </details>
+      ))}
+    </section>
   );
 }
 

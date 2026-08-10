@@ -49,7 +49,8 @@ select {
   --error: #c0362b;
 
   --font-ui:
-    "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", Meiryo, system-ui, sans-serif;
+    "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic Medium", Meiryo,
+    system-ui, sans-serif;
   --font-mono:
     "SFMono-Regular", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
@@ -234,7 +235,11 @@ a {
 }
 .rail-node.seg-active::before,
 .rail-node.seg-done::before {
-  background: linear-gradient(90deg, var(--accent) var(--seg, 100%), var(--border) 0);
+  background: linear-gradient(
+    90deg,
+    var(--accent) var(--seg, 100%),
+    var(--border) 0
+  );
 }
 /* chevron triple（装飾・アクティブ区間のみ流れる）。 */
 .rail-node.seg-active::after {
@@ -750,6 +755,75 @@ a {
 }
 .notice strong {
   color: var(--fg);
+}
+
+/* ---- よくある質問 ----------------------------------------------------------
+ * レーンを流れ終えた先の「案内板」。ステーションの WORK PLATE とは競わせず、
+ * 左端の lime エッジルールだけで同じ体系に属することを示す。開いた項目だけ
+ * エッジが濃くなる（レール進捗と同じ「今ここ」の出し方）。 */
+.faq {
+  margin-top: 30px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+/* セクション見出しは .plate h2 と同じ型。配下の質問(14px/600)より弱くすると
+   階層が逆転して「よくある質問」が脚注ラベルに見えるため、既存の見出し型に乗せる。 */
+.faq-head {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.faq-item {
+  border-left: 3px solid var(--border);
+  padding: 0 0 0 12px;
+  margin-bottom: 2px;
+  transition: border-color 160ms ease-out;
+}
+/* 開いた項目のエッジ。lime の --accent は light 背景で --border との差が 1.2:1 しかなく
+   開閉の区別が付かないので、非テキストコントラストを満たす --accent-ink を使う
+   （.slot の破線と同じ判断）。 */
+.faq-item[open] {
+  border-left-color: var(--accent-ink);
+}
+.faq-item > summary {
+  cursor: pointer;
+  list-style: none;
+  /* 当製品は操作ターゲットを 44px に揃えている(.dot / .chip button / .btn / select)。
+     24px の行に上下 10px で 44px。 */
+  padding: 10px 0;
+  font-size: 14px;
+  line-height: 24px;
+  font-weight: 600;
+  color: var(--fg);
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.faq-item > summary::-webkit-details-marker {
+  display: none;
+}
+/* 開閉マーカーは lime の矢羽根。レーンの「向き」の記号を再利用する。 */
+.faq-item > summary::before {
+  content: "▸";
+  color: var(--accent-ink);
+  font-size: 12px;
+  transition: transform 160ms ease-out;
+}
+.faq-item[open] > summary::before {
+  transform: rotate(90deg);
+}
+.faq-item > summary:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.faq-item > p {
+  padding: 0 0 12px 21px;
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--muted);
+  max-width: 66ch;
 }
 
 /* ---- モバイル -------------------------------------------------------------- */
