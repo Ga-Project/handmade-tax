@@ -1,0 +1,40 @@
+name: CI
+
+# pages.yml は push(main) にしか反応しない。PR の時点で同じ検査を通し、
+# main を壊さないまま結果を確認できるようにする。
+# 公開はしないので Pages 権限も artifact も持たない。
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint / types / tests / audit
+    runs-on: ubuntu-latest
+    env:
+      # 公開と同じ basePath でビルドしないと、成果物検査が本番と違うものを見る。
+      NEXT_PUBLIC_BASE_PATH: /handmade-tax
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      # Actions は CI=true を自動で立てるため、成果物検査は skip されず必ず走る。
+      - run: pnpm test
+      # 依存の脆弱性監視。high/critical で落とす。既知の waive は
+      # pnpm-workspace.yaml の auditConfig.ignoreGhsas に根拠付きで置く。
+      - run: pnpm audit --audit-level high

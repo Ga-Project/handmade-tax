@@ -6,9 +6,10 @@
 // HTML を読んで検査する。
 //
 // out/ が無い・basePath 無しでビルドされている場合はスキップするが、
-// **公開経路（pages.yml の verify job）ではスキップを許さない**。
+// **`pnpm run test:publish` ではスキップを許さない**（この script が
+// 「公開と同じ条件でビルド → 検査」を1つにまとめており、CI はこれを回す）。
 // 静かにスキップする検査は緑のまま通るので、「安全網があるつもり」になるぶん、
-// 無いよりたちが悪い。verify job は下の env を立てて必ず本検査を通す。
+// 無いよりたちが悪い。test:publish は下の env を立てて必ず本検査を通す。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -37,7 +38,7 @@ const builtWithBasePath =
     readFileSync(f, "utf8").includes(`href="${BASE_PATH}/_next/`),
   );
 
-// 公開経路ではスキップを許さない（pages.yml の verify job が "1" を立てる）。
+// スキップを許さない実行（package.json の test:publish が "1" を立てる）。
 const REQUIRED = process.env.HANDMADE_TAX_REQUIRE_PUBLISH_CHECK === "1";
 
 const attr = (html, re) => (html.match(re) ?? [])[1];
@@ -46,9 +47,34 @@ test("公開検査の前提が満たされている", { skip: !REQUIRED }, () =>
   assert.ok(
     builtWithBasePath,
     `HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1 だが、basePath 付きでビルドした out/ が見つからない。` +
-      ` 'NEXT_PUBLIC_BASE_PATH=${BASE_PATH} pnpm build' を先に実行すること` +
+      ` 'pnpm run build:publish' を先に実行すること` +
       `（この検査がスキップされると、公開先でアセットが 404 のまま CI が緑になる）。`,
   );
+});
+
+test("ビルドに注入する basePath が lib/site.ts と食い違っていない", () => {
+  // basePath を実際に注入するのはビルドコマンド側なので、lib/site.ts の BASE_PATH と
+  // 片方だけ変えると、canonical / sitemap が指すURLと、生成物のアセットパスが食い違う。
+  // 注入箇所は package.json の build:publish 1 箇所に寄せてあり、ここでその一致を固定する。
+  const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json")));
+  assert.match(
+    pkg.scripts?.["build:publish"] ?? "",
+    /NEXT_PUBLIC_BASE_PATH=/,
+    "build:publish が basePath を注入していない（公開先でアセットが404になる）",
+  );
+  for (const rel of ["../package.json", "../.github/workflows/pages.yml"]) {
+    const path = resolve(__dirname, rel);
+    if (!existsSync(path)) continue; // 配布形態によっては workflow が同梱されない
+    for (const m of readFileSync(path, "utf8").matchAll(
+      /NEXT_PUBLIC_BASE_PATH\s*[:=]\s*"?([^"\s]+)"?/g,
+    )) {
+      assert.equal(
+        m[1],
+        BASE_PATH,
+        `${rel} が注入する basePath が lib/site.ts の BASE_PATH と違う`,
+      );
+    }
+  }
 });
 
 test(

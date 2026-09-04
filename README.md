@@ -43,18 +43,25 @@ Next.js（App Router）。`out/` への static export で配信するためサ�
 ```bash
 ./setup.sh                 # 依存の導入
 pnpm dev                   # http://localhost:3000（ホットリロード）
-pnpm build                 # out/ に静的HTML/CSS/JSを生成
+pnpm build                 # out/ に静的HTML/CSS/JSを生成（ルート配信用）
+pnpm run build:publish     # 公開と同じ条件（配信パス付き）で out/ を生成
 pnpm test                  # node --test（変換ロジックの単体テスト）
+pnpm run test:publish      # 公開条件でビルドしてから、生成物を読む検査まで通す
 pnpm og                    # 共有カード public/og.png を作り直す（下記）
 ```
+
+生成物（`out/`）を読む検査は、ビルドが無いと前提が揃わずスキップされます。`pnpm run test:publish`
+はビルドから通すのでスキップが起きず、前提が崩れていればテストとして落ちます。CI はこちらを使います。
 
 ### 配信パスについて
 
 GitHub Pages のプロジェクトページ（`<owner>.github.io/handmade-tax/`）へ配信するため、
-ビルド時に env `NEXT_PUBLIC_BASE_PATH=/handmade-tax` を渡して `basePath`/`assetPrefix` を付けます
-（`.github/workflows/pages.yml` が注入）。**未設定だと `/_next/...` がドメイン直下に解決され、
-CSS も JS も 404 になります。** ローカルで `out/` をポート直下に置いて確認する場合は、
-既定（env なし）の空のままで正しく動きます。ルート配信に切り替える場合はこの env を外します。
+ビルド時に env `NEXT_PUBLIC_BASE_PATH` を渡して `basePath`/`assetPrefix` を付けます。
+注入は `package.json` の `build:publish` / `test:publish` が持ち、公開ワークフローもそれを呼びます
+（同じ値を複数箇所に書くと、検査したビルドと公開するビルドが別物になり得るため）。
+値が `lib/site.ts` の `BASE_PATH` と食い違っていないことは `test/site.test.mjs` が検査します。
+**未設定だと `/_next/...` がドメイン直下に解決され、CSS も JS も 404 になります。**
+ローカルで `out/` をポート直下に置いて確認する場合は、素の `pnpm build`（env なし）で正しく動きます。
 
 ### 共有カード（OGP）
 

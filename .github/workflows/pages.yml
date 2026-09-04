@@ -42,9 +42,10 @@ jobs:
   # 公開検査ゲート（必須）。
   # この製品は basePath 未設定のまま公開され、HTML は 200 で返るのに CSS も JS も 404
   # という状態で稼働していた。変換は全て JS なので、訪問者は何もできない状態だった。
-  # 生成物を読む検査は out/ が要るので、テストの前に公開と同じ条件でビルドしておく。
-  # ここでビルドしないと out/ が無く、検査が静かにスキップされたまま CI が緑になる
-  # （＝安全網があるつもりで穴が開く）。
+  # 生成物を読む検査は out/ が要るので、公開と同じ条件でビルドしてから検査する
+  # test:publish を使う。ビルドしないまま検査すると out/ が無く、検査が静かに
+  # スキップされたまま CI が緑になる（＝安全網があるつもりで穴が開く）。
+  # basePath の注入はビルドコマンド（package.json の build:publish）に一本化してある。
   # ---------------------------------------------------------------------------
   verify:
     name: Test & Typecheck
@@ -57,13 +58,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-        env:
-          NEXT_PUBLIC_BASE_PATH: /handmade-tax
-      - run: pnpm test # 生成物のアセット/URL検査と、表示↔構造化データの照合を含む
-        env:
-          # スキップを許さない。前提が崩れていたらテストとして落とす。
-          HANDMADE_TAX_REQUIRE_PUBLISH_CHECK: "1"
+      # 公開条件でビルド → 全テスト。生成物のアセット/URL検査と、
+      # 表示↔構造化データの照合を含む（スキップは前提テストが落として許さない）。
+      - run: pnpm run test:publish
       - run: pnpm typecheck
       - run: pnpm lint
 
@@ -81,10 +78,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # プロジェクトページ（<owner>.github.io/handmade-tax/）へサブパス配信するため basePath を注入。
-      # ルート配信（ユーザー/組織ページ・カスタムドメイン）に切り替える場合はこの env を外す。
-      - run: pnpm build
-        env:
-          NEXT_PUBLIC_BASE_PATH: /handmade-tax
+      # 注入値は package.json の build:publish が持つ（ここに書くと二重管理になり、
+      # 片方だけ変えたときに検査が通ったビルドと公開するビルドが別物になる）。
+      # ルート配信（ユーザー/組織ページ・カスタムドメイン）に切り替える場合は素の build を使う。
+      - run: pnpm run build:publish
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
