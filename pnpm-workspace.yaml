@@ -43,3 +43,6 @@ auditConfig:
     # かつ静的書き出しのため出荷物に sharp を含まない。
     # ⚠️再評価: images.unoptimized を外す / 画像最適化サーバを立てたら即撤去して更新すること。
     - GHSA-f88m-g3jw-g9cj
+
+allowBuilds:
+  unrs-resolver: set this to true or false
