@@ -8,8 +8,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  # 取り消された公開をやり直すための手動再実行。検査 → ビルド → 公開の
-  # 順序は needs で固定されているので、ここから起動してもゲートは飛ばせない。
+  # 取り消された公開をやり直すための手動再実行。ただし workflow_dispatch は
+  # 選んだ ref に対して走るため、feature ブランチやタグを選ぶと main に入って
+  # いないコードがそのまま公開される。それを guard job で弾く（下の注意も読むこと）。
   workflow_dispatch:
 
 # 最小権限。書き込みが要るのは deploy job のみ（下で job 単位に付与）。
@@ -17,15 +18,57 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  # ref ごとに分ける。1つの group にまとめると、main 以外を選んだ手動起動が
+  # 「待機中の main の公開」を追い出してしまう（同一 group では新しい run が
+  # 待機中の run をキャンセルする）。追い出された run は失敗ではなく cancelled で
+  # 終わるので、公開されなかったことに気づけない。
+  # 実際に deploy まで進めるのは main だけなので、公開の直列性はこれで保たれる。
+  group: pages-${{ github.ref }}
   # 進行中の公開は最後までやらせる（途中で切ると公開が中途半端な状態で終わる）。
   cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 公開してよい ref か（= main か）を最初に確定する。
+  # push トリガは branches: [main] で絞られているが、workflow_dispatch は絞れない。
+  # 手動起動は任意の ref を選べるので、ここを通さないと「レビューも main へのマージも
+  # 経ていないコードを公開する」経路が空いたままになる。
+  #
+  # ただしこの job は「最終防衛線ではない」。workflow_dispatch は選んだ ref にある
+  # workflow 定義で走るため、guard を削ったコピーを push したブランチを選べば
+  # guard 自体が走らない。ref を最終的に強制しているのはリポジトリ設定側、
+  # github-pages environment の deployment branch policy（main のみ）で、これは
+  # deploy job が environment を要求した時点でサーバ側で評価され、ブランチからは
+  # 書き換えられない。この設定は絶対に外さないこと。
+  # guard の役目は、その拒否を diff に残る形で明示し、無駄なビルドの前に
+  # 早く赤くすること。
+  #
+  # if: で分岐しないこと。条件付きにすると main 以外は job が skip されて
+  # 全体が緑で終わり、「公開されなかった」ことに気づけない。ここは落として赤くする。
+  # ref を ${{ }} で直接シェルに展開しないこと（ブランチ名に $ や " を含められる）。
+  # env 経由で渡す。
+  # ---------------------------------------------------------------------------
+  guard:
+    name: Ref check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse refs other than main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::公開できるのは refs/heads/main だけです（起動 ref: $REF）。main の公開をやり直す場合は main の run を re-run すること。"
+            exit 1
+          fi
+          echo "ref OK: $REF"
+
   # 秘密スキャン（全履歴 gitleaks）・公開検査・型・lint・依存監査。
   # build はこの job を needs にするため、どれか1つでも落ちると公開に進まない。
   verify:
     name: Pre-deploy
+    needs: guard
     uses: ./.github/workflows/verify.yml
     permissions:
       contents: read
@@ -35,9 +78,15 @@ jobs:
     # 全ての検査が PASS していることが前提。fail 時は skip され公開されない。
     needs: verify
     runs-on: ubuntu-latest
+    # cancel-in-progress: false なので、ここが固まると同じ ref の公開が
+    # 既定の6時間ぶん止まる。上限を明示して詰まりを短く切る。
+    timeout-minutes: 30
     steps:
+      # actions/* は GitHub 自身が持つ組織で、ランナーや Actions サービスと同じ
+      # 信頼境界にあるため major タグのままにする。それ以外（第三者）は
+      # タグを付け替えられるので commit SHA で固定する。
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0（v4 タグの現在地）
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -56,10 +105,16 @@ jobs:
     name: Deploy
     needs: build
     runs-on: ubuntu-latest
+    # actions/deploy-pages 自身の既定タイムアウト(10分)より後に来るようにする。
+    # 同値だと action の明示的なエラーより先に job が打ち切られ、結果が failure ではなく
+    # cancelled になって「公開されなかった」ことが読み取りにくくなる。
+    timeout-minutes: 15
     permissions:
       contents: read
       pages: write
       id-token: write
+    # environment 側の deployment branch policy（main のみ）が、ref を強制する
+    # 最終防衛線。guard と違ってブランチからは書き換えられない。
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

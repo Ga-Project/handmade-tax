@@ -60,7 +60,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      # actions/* は GitHub 自身の組織なので major タグのまま。第三者の action は
+      # タグを付け替えられる（gitleaks を SHA256 で固定しているのと同じ理由）ので
+      # commit SHA で固定する。
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0（v4 タグの現在地）
       - uses: actions/setup-node@v4
         with:
           node-version: 22

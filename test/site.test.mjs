@@ -56,7 +56,8 @@ test("ビルドに注入する basePath が lib/site.ts と食い違っていな
   // basePath を実際に注入するのはビルドコマンド側なので、lib/site.ts の BASE_PATH と
   // 片方だけ変えると、canonical / sitemap が指すURLと、生成物のアセットパスが食い違う。
   // 注入箇所は package.json のスクリプトに寄せてあり、ここでその一致を固定する。
-  const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json")));
+  const raw = readFileSync(resolve(__dirname, "../package.json"), "utf8");
+  const pkg = JSON.parse(raw);
   // 公開するビルド(build:publish)と、CI が検査するビルド(test:publish)の両方。
   // 片方だけ注入を失うと、検査したものと公開するものが別物になる。
   for (const script of ["build:publish", "test:publish"]) {
@@ -75,10 +76,7 @@ test("ビルドに注入する basePath が lib/site.ts と食い違っていな
   // workflow 側が別の値を注入していないかは test/workflows.test.mjs が見る。
   // 空文字（"" / 値なし）も取りこぼさない。空で注入されると、検査したビルドと
   // 公開するビルドが別物になるのに、正規表現が空振りして緑になる。
-  for (const m of readFileSync(
-    resolve(__dirname, "../package.json"),
-    "utf8",
-  ).matchAll(
+  for (const m of raw.matchAll(
     /NEXT_PUBLIC_BASE_PATH[^\S\n]*[:=][^\S\n]*(?:\\"([^"\n]*)\\"|'([^'\n]*)'|(\S*))/g,
   )) {
     assert.equal(

@@ -8,11 +8,19 @@ name: CI
 # 登録した場合だけ。未登録なら赤くても手動マージはできる。
 # 公開はしないので Pages 権限も artifact も持たない。
 
+# 手動起動（workflow_dispatch）は置かない。手動起動は選んだ ref に対して走るので、
+# この workflow が出す check を、マージ後の状態を一度も検査しないまま head の SHA に
+# 対して緑で付けられる。その名前を main の必須ステータスチェックに登録すると、
+# 検査していないものでゲートを満たせることになる。
+# pull_request はマージ結果（base と head の仮想マージ）に対して走るので、
+# 同じ名前でも中身が違う。
+# PR の無いブランチで同じ検査を回したいときは、ドラフト PR を開く。
+# pull_request の既定 types はドラフトでも走るので、公開せずに全ゲートを通せる。
+
 on:
   pull_request:
   # マージキューを有効にしたときに、キュー上の候補も同じ検査を通るようにする。
   merge_group:
-  workflow_dispatch:
 
 permissions:
   contents: read
