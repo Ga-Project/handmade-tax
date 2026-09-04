@@ -51,17 +51,14 @@ entropy = 3.5
 [allowlist]
 description = "Allow only example/test placeholders — never real secrets"
 
-# example / sample / template ファイル、テストフィクスチャ、age 暗号文(*.age)を許可。
+# example / sample / template ファイルと age 暗号文(*.age)だけを許可。
 # *.age は暗号文なので安全(中身は読めない)。それ以外の実鍵パスは除外しない。
+# ディレクトリ単位の除外は置かない(そこに実鍵を置かれると検査が素通りする)。
 paths = [
   '''(^|/)[^/]*\.example($|\..*)''',
   '''(^|/)[^/]*\.sample($|\..*)''',
   '''(^|/)[^/]*\.template($|\..*)''',
   '''(^|/)[^/]*\.age$''',
-  '''(^|/)fixtures?/''',
-  '''(^|/)testdata/''',
-  '''(^|/)__tests__/''',
-  '''(^|/)__fixtures__/''',
 ]
 
 # プレースホルダ文字列(値が <...> / xxxx / your-... / changeme / example のもの)は許可

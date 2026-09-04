@@ -1,11 +1,17 @@
 name: CI
 
-# pages.yml は push(main) にしか反応しない。PR の時点で同じ検査を通し、
-# main を壊さないまま結果を確認できるようにする。
+# pages.yml は push(main) にしか反応しない。PR の時点で公開時とまったく同じ検査
+# （秘密スキャン・依存監査・公開検査）を通し、秘密情報も脆弱依存も壊れた成果物も
+# レビュー前に見えるようにする。検査本体は verify.yml に一本化してあり、
+# pages.yml も同じものを呼ぶ。
+# なお、この結果がマージを止めるのは main の必須ステータスチェックに
+# 登録した場合だけ。未登録なら赤くても手動マージはできる。
 # 公開はしないので Pages 権限も artifact も持たない。
 
 on:
   pull_request:
+  # マージキューを有効にしたときに、キュー上の候補も同じ検査を通るようにする。
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -17,26 +23,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Lint / types / tests / audit
-    runs-on: ubuntu-latest
-    env:
-      # 公開と同じ basePath でビルドしないと、成果物検査が本番と違うものを見る。
-      NEXT_PUBLIC_BASE_PATH: /handmade-tax
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm build
-      # Actions は CI=true を自動で立てるため、成果物検査は skip されず必ず走る。
-      - run: pnpm test
-      # 依存の脆弱性監視。high/critical で落とす。既知の waive は
-      # pnpm-workspace.yaml の auditConfig.ignoreGhsas に根拠付きで置く。
-      # npm の advisories/bulk は応答に数分かかることがあり、既定の fetch-timeout(60s)では
-      # 到達できずに赤くなる(脆弱性の有無と無関係)。上限と再試行を延ばして待つ。
-      - run: pnpm audit --audit-level high --fetch-timeout=600000 --fetch-retries=5 --fetch-retry-maxtimeout=180000
+    name: Pre-merge
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read

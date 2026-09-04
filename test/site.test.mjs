@@ -55,25 +55,37 @@ test("公開検査の前提が満たされている", { skip: !REQUIRED }, () =>
 test("ビルドに注入する basePath が lib/site.ts と食い違っていない", () => {
   // basePath を実際に注入するのはビルドコマンド側なので、lib/site.ts の BASE_PATH と
   // 片方だけ変えると、canonical / sitemap が指すURLと、生成物のアセットパスが食い違う。
-  // 注入箇所は package.json の build:publish 1 箇所に寄せてあり、ここでその一致を固定する。
+  // 注入箇所は package.json のスクリプトに寄せてあり、ここでその一致を固定する。
   const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json")));
+  // 公開するビルド(build:publish)と、CI が検査するビルド(test:publish)の両方。
+  // 片方だけ注入を失うと、検査したものと公開するものが別物になる。
+  for (const script of ["build:publish", "test:publish"]) {
+    assert.match(
+      pkg.scripts?.[script] ?? "",
+      /NEXT_PUBLIC_BASE_PATH=/,
+      `${script} が basePath を注入していない（公開先でアセットが404になる）`,
+    );
+  }
   assert.match(
-    pkg.scripts?.["build:publish"] ?? "",
-    /NEXT_PUBLIC_BASE_PATH=/,
-    "build:publish が basePath を注入していない（公開先でアセットが404になる）",
+    pkg.scripts?.["test:publish"] ?? "",
+    /HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1/,
+    "test:publish が成果物検査を必須にしていない（out/ が無いと静かにスキップされる）",
   );
-  for (const rel of ["../package.json", "../.github/workflows/pages.yml"]) {
-    const path = resolve(__dirname, rel);
-    if (!existsSync(path)) continue; // 配布形態によっては workflow が同梱されない
-    for (const m of readFileSync(path, "utf8").matchAll(
-      /NEXT_PUBLIC_BASE_PATH\s*[:=]\s*"?([^"\s]+)"?/g,
-    )) {
-      assert.equal(
-        m[1],
-        BASE_PATH,
-        `${rel} が注入する basePath が lib/site.ts の BASE_PATH と違う`,
-      );
-    }
+  // 注入した値そのものが lib/site.ts と一致していること。
+  // workflow 側が別の値を注入していないかは test/workflows.test.mjs が見る。
+  // 空文字（"" / 値なし）も取りこぼさない。空で注入されると、検査したビルドと
+  // 公開するビルドが別物になるのに、正規表現が空振りして緑になる。
+  for (const m of readFileSync(
+    resolve(__dirname, "../package.json"),
+    "utf8",
+  ).matchAll(
+    /NEXT_PUBLIC_BASE_PATH[^\S\n]*[:=][^\S\n]*(?:\\"([^"\n]*)\\"|'([^'\n]*)'|(\S*))/g,
+  )) {
+    assert.equal(
+      m[1] ?? m[2] ?? m[3] ?? "",
+      BASE_PATH,
+      "package.json が注入する basePath が lib/site.ts の BASE_PATH と違う",
+    );
   }
 });
 
@@ -81,6 +93,8 @@ test(
   "サブパス配信でアセット・内部リンクが basePath を失っていない",
   { skip: !builtWithBasePath && !REQUIRED },
   () => {
+    // 0件を走査して緑、をやらない（out/ が無いのに「アセットは健全」と言わない）。
+    assert.ok(files.length > 0, "out/ に HTML が1つも無い（検査対象ゼロ）");
     const offenders = [];
     for (const file of files) {
       const html = readFileSync(file, "utf8");

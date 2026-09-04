@@ -3,8 +3,9 @@
 # strictDepBuilds:
 #   pnpm 11 は未ビルドの依存(sharp / unrs-resolver 等ネイティブ binding)を
 #   ERR_PNPM_IGNORED_BUILDS で hard-fail させる。本製品は output:"export" の静的書き出しで、
-#   これらのビルド成果物を実行時に使わない(画像は images.unoptimized・lint は Pages ビルド
-#   ジョブで走らない)ため、ビルドは実行せず strict ゲートのみ無効化する(= 供給網の最小許可)。
+#   これらのビルド成果物を実行時に使わない(画像は images.unoptimized、lint/型検査は
+#   同梱のプリビルド binding で足りる)ため、ビルドは実行せず strict ゲートのみ
+#   無効化する(= 供給網の最小許可)。
 #   注意: pnpm 11.8 では allowBuilds / onlyBuiltDependencies / ignoredBuiltDependencies を
 #         書いても ERR_PNPM_IGNORED_BUILDS は解消しない(検証済み)。strictDepBuilds:false のみ有効。
 strictDepBuilds: false
@@ -48,6 +49,9 @@ auditConfig:
 #   strictDepBuilds:false により依存のビルドは実行しない。ここは pnpm install が未解決の
 #   依存を未解決のプレースホルダとして自動追記するのを防ぐための明示。新しい
 #   ビルド付き依存が入ると pnpm がここに行を足すので、false/true を判断して埋めること
-#   (プレースホルダのまま残すと ga check / ga publish が止める)。
+#   (自動追記されたプレースホルダのまま残さない)。
 allowBuilds:
+  # sharp: next の画像最適化用。本製品は images.unoptimized + output:"export" で
+  #   ランタイムも出荷物(out/)も sharp を呼ばないため、ネイティブビルドは不要。
+  sharp: false
   unrs-resolver: false
