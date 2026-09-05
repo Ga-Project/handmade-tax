@@ -127,14 +127,15 @@ test("JSON-LD に script を打ち切る生の < が残らない", () => {
 
 const OUT = at("../out");
 const hasBuild = existsSync(resolve(OUT, "index.html"));
-// 公開経路（pages.yml の verify job）ではスキップを許さない。静かにスキップする検査は
-// 緑のまま通るので、「安全網があるつもり」になるぶん、無いよりたちが悪い。
+// `pnpm run test:publish`（公開と同じ条件でビルドしてから検査する。CI はこれを回す）では
+// スキップを許さない。静かにスキップする検査は緑のまま通るので、「安全網があるつもり」に
+// なるぶん、無いよりたちが悪い。
 const REQUIRED = process.env.HANDMADE_TAX_REQUIRE_PUBLISH_CHECK === "1";
 
 test("成果物照合の前提が満たされている", { skip: !REQUIRED }, () => {
   assert.ok(
     hasBuild,
-    "HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1 だが out/index.html が無い。先に pnpm build を実行すること" +
+    "HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1 だが out/index.html が無い。先に pnpm run build:publish を実行すること" +
       "（この検査がスキップされると、表示と構造化データの食い違いを検出しないまま CI が緑になる）。",
   );
 });

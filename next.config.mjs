@@ -3,7 +3,7 @@
 // basePath/assetPrefix が必須（未設定だと /_next/... がドメイン直下に解決され全アセット404）。
 // 一方、ローカルで out/ をポート直下（ルート）に置いて確認する場合は basePath を空にする。
 // → env NEXT_PUBLIC_BASE_PATH で切替。既定（未設定）は空＝ルート配信。Pages デプロイ時のみ
-//   "/handmade-tax" を注入する（.github/workflows/pages.yml の build ステップ）。
+//   "/handmade-tax" を注入する（package.json の build:publish / test:publish が唯一の注入箇所）。
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 const nextConfig = {

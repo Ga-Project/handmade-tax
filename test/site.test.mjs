@@ -6,9 +6,10 @@
 // HTML を読んで検査する。
 //
 // out/ が無い・basePath 無しでビルドされている場合はスキップするが、
-// **公開経路（pages.yml の verify job）ではスキップを許さない**。
+// **`pnpm run test:publish` ではスキップを許さない**（この script が
+// 「公開と同じ条件でビルド → 検査」を1つにまとめており、CI はこれを回す）。
 // 静かにスキップする検査は緑のまま通るので、「安全網があるつもり」になるぶん、
-// 無いよりたちが悪い。verify job は下の env を立てて必ず本検査を通す。
+// 無いよりたちが悪い。test:publish は下の env を立てて必ず本検査を通す。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -37,7 +38,7 @@ const builtWithBasePath =
     readFileSync(f, "utf8").includes(`href="${BASE_PATH}/_next/`),
   );
 
-// 公開経路ではスキップを許さない（pages.yml の verify job が "1" を立てる）。
+// スキップを許さない実行（package.json の test:publish が "1" を立てる）。
 const REQUIRED = process.env.HANDMADE_TAX_REQUIRE_PUBLISH_CHECK === "1";
 
 const attr = (html, re) => (html.match(re) ?? [])[1];
@@ -46,15 +47,52 @@ test("公開検査の前提が満たされている", { skip: !REQUIRED }, () =>
   assert.ok(
     builtWithBasePath,
     `HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1 だが、basePath 付きでビルドした out/ が見つからない。` +
-      ` 'NEXT_PUBLIC_BASE_PATH=${BASE_PATH} pnpm build' を先に実行すること` +
+      ` 'pnpm run build:publish' を先に実行すること` +
       `（この検査がスキップされると、公開先でアセットが 404 のまま CI が緑になる）。`,
   );
+});
+
+test("ビルドに注入する basePath が lib/site.ts と食い違っていない", () => {
+  // basePath を実際に注入するのはビルドコマンド側なので、lib/site.ts の BASE_PATH と
+  // 片方だけ変えると、canonical / sitemap が指すURLと、生成物のアセットパスが食い違う。
+  // 注入箇所は package.json のスクリプトに寄せてあり、ここでその一致を固定する。
+  const raw = readFileSync(resolve(__dirname, "../package.json"), "utf8");
+  const pkg = JSON.parse(raw);
+  // 公開するビルド(build:publish)と、CI が検査するビルド(test:publish)の両方。
+  // 片方だけ注入を失うと、検査したものと公開するものが別物になる。
+  for (const script of ["build:publish", "test:publish"]) {
+    assert.match(
+      pkg.scripts?.[script] ?? "",
+      /NEXT_PUBLIC_BASE_PATH=/,
+      `${script} が basePath を注入していない（公開先でアセットが404になる）`,
+    );
+  }
+  assert.match(
+    pkg.scripts?.["test:publish"] ?? "",
+    /HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1/,
+    "test:publish が成果物検査を必須にしていない（out/ が無いと静かにスキップされる）",
+  );
+  // 注入した値そのものが lib/site.ts と一致していること。
+  // workflow 側が別の値を注入していないかは test/workflows.test.mjs が見る。
+  // 空文字（"" / 値なし）も取りこぼさない。空で注入されると、検査したビルドと
+  // 公開するビルドが別物になるのに、正規表現が空振りして緑になる。
+  for (const m of raw.matchAll(
+    /NEXT_PUBLIC_BASE_PATH[^\S\n]*[:=][^\S\n]*(?:\\"([^"\n]*)\\"|'([^'\n]*)'|(\S*))/g,
+  )) {
+    assert.equal(
+      m[1] ?? m[2] ?? m[3] ?? "",
+      BASE_PATH,
+      "package.json が注入する basePath が lib/site.ts の BASE_PATH と違う",
+    );
+  }
 });
 
 test(
   "サブパス配信でアセット・内部リンクが basePath を失っていない",
   { skip: !builtWithBasePath && !REQUIRED },
   () => {
+    // 0件を走査して緑、をやらない（out/ が無いのに「アセットは健全」と言わない）。
+    assert.ok(files.length > 0, "out/ に HTML が1つも無い（検査対象ゼロ）");
     const offenders = [];
     for (const file of files) {
       const html = readFileSync(file, "utf8");

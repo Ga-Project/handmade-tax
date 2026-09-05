@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:publish": "NEXT_PUBLIC_BASE_PATH=/handmade-tax next build",
     "og": "node scripts/generate-og.mjs",
     "lint": "next lint --max-warnings 0",
     "typecheck": "tsc --noEmit",
-    "test": "node --test"
+    "test": "node --test",
+    "test:publish": "NEXT_PUBLIC_BASE_PATH=/handmade-tax next build && HANDMADE_TAX_REQUIRE_PUBLISH_CHECK=1 node --test"
   },
   "dependencies": {
     "next": "^15.5.21",
@@ -22,6 +24,7 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.5.21",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "yaml": "^2.9.0"
   }
 }

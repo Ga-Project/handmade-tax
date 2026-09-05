@@ -1,3 +1,57 @@
-# pnpm 11 の ERR_PNPM_IGNORED_BUILDS 回避。静的書き出し製品は sharp/unrs-resolver の
-# ビルド成果物を実行時に使わないため、ビルドは実行せず strict ゲートのみ無効化する。
+# handmade-tax — pnpm 設定。
+#
+# strictDepBuilds:
+#   pnpm 11 は未ビルドの依存(sharp / unrs-resolver 等ネイティブ binding)を
+#   ERR_PNPM_IGNORED_BUILDS で hard-fail させる。本製品は output:"export" の静的書き出しで、
+#   これらのビルド成果物を実行時に使わない(画像は images.unoptimized、lint/型検査は
+#   同梱のプリビルド binding で足りる)ため、ビルドは実行せず strict ゲートのみ
+#   無効化する(= 供給網の最小許可)。
+#   注意: pnpm 11.8 では allowBuilds / onlyBuiltDependencies / ignoredBuiltDependencies を
+#         書いても ERR_PNPM_IGNORED_BUILDS は解消しない(検証済み)。strictDepBuilds:false のみ有効。
 strictDepBuilds: false
+
+# auditConfig:
+#   CI の `pnpm audit --audit-level high` は high/critical で落ちる。
+#   ここに載せた GHSA だけが exit 0 に寄与し、新規の high/critical は落ちる。
+#   載せてよいのは「dev ツール専用 / ビルド時のみ / 実行時未呼出」で、静的書き出しの
+#   出荷物(out/)の攻撃面に到達しないものだけ。各エントリに根拠と再評価条件を付す。
+auditConfig:
+  ignoreGhsas:
+    # --- dev ツール専用(eslint 系 transitive・lint 実行時のみ・出荷物に非含有) ---
+    # brace-expansion: グロブ展開による DoS。攻撃者制御でない自作パターンにのみ作用する。
+    - GHSA-3jxr-9vmj-r5cp
+    - GHSA-mh99-v99m-4gvg
+    - GHSA-rgw5-rvv9-x895
+    # js-yaml: YAML の連鎖参照による二次 CPU。eslint 設定のパース時のみ動く。
+    - GHSA-52cp-r559-cp3m
+    - GHSA-5p4m-2wfm-xmqj
+    #
+    # --- ビルド時のみ(next > postcss の CSS 処理・出荷 out/ に非含有) ---
+    # 処理対象の CSS は本リポジトリ自作(攻撃者非制御)。両 advisory とも「攻撃者制御の
+    # CSS / source-map をビルド時に処理させる」ことが前提のため、到達経路が無い。
+    # ⚠️再評価: 外部由来(ユーザー投稿・第三者テーマ)の CSS をビルド時に取り込み始めたら
+    #          即撤去して postcss を更新すること。
+    - GHSA-6g55-p6wh-862q
+    - GHSA-r28c-9q8g-f849
+    # nanoid: 非整数 size を渡した custom generator が無限ループしうる。経路は
+    #   next > postcss > nanoid のみで、postcss は既定ジェネレータを内部利用するだけ。
+    #   本製品のコードから nanoid を直接呼ばないため到達経路が無い。
+    #   ⚠️再評価: アプリコードで nanoid を直接使い始めたら即撤去して更新すること。
+    - GHSA-2v37-7h3g-55p8
+    #
+    # --- 未使用の画像プロセッサ(next > sharp・実行時未呼出) ---
+    # next/image の最適化を images.unoptimized で無効化しており sharp を実行時に呼ばない。
+    # かつ静的書き出しのため出荷物に sharp を含まない。
+    # ⚠️再評価: images.unoptimized を外す / 画像最適化サーバを立てたら即撤去して更新すること。
+    - GHSA-f88m-g3jw-g9cj
+
+# allowBuilds:
+#   strictDepBuilds:false により依存のビルドは実行しない。ここは pnpm install が未解決の
+#   依存を未解決のプレースホルダとして自動追記するのを防ぐための明示。新しい
+#   ビルド付き依存が入ると pnpm がここに行を足すので、false/true を判断して埋めること
+#   (自動追記されたプレースホルダのまま残さない)。
+allowBuilds:
+  # sharp: next の画像最適化用。本製品は images.unoptimized + output:"export" で
+  #   ランタイムも出荷物(out/)も sharp を呼ばないため、ネイティブビルドは不要。
+  sharp: false
+  unrs-resolver: false

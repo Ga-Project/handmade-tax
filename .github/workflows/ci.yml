@@ -1,0 +1,39 @@
+name: CI
+
+# pages.yml は push(main) にしか反応しない。PR の時点で公開時とまったく同じ検査
+# （秘密スキャン・依存監査・公開検査）を通し、秘密情報も脆弱依存も壊れた成果物も
+# レビュー前に見えるようにする。検査本体は verify.yml に一本化してあり、
+# pages.yml も同じものを呼ぶ。
+# なお、この結果がマージを止めるのは main の必須ステータスチェックに
+# 登録した場合だけ。未登録なら赤くても手動マージはできる。
+# 公開はしないので Pages 権限も artifact も持たない。
+
+# 手動起動（workflow_dispatch）は置かない。手動起動は選んだ ref に対して走るので、
+# この workflow が出す check を、マージ後の状態を一度も検査しないまま head の SHA に
+# 対して緑で付けられる。その名前を main の必須ステータスチェックに登録すると、
+# 検査していないものでゲートを満たせることになる。
+# pull_request はマージ結果（base と head の仮想マージ）に対して走るので、
+# 同じ名前でも中身が違う。
+# PR の無いブランチで同じ検査を回したいときは、ドラフト PR を開く。
+# pull_request の既定 types はドラフトでも走るので、公開せずに全ゲートを通せる。
+# 同じ理由で pages.yml も手動起動を持たない。手動起動は「選んだ ref にある workflow
+# 定義」で走るため、workflow の中に ref 検査を置いても、その定義ごと差し替えられる。
+
+on:
+  pull_request:
+  # マージキューを有効にしたときに、キュー上の候補も同じ検査を通るようにする。
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Pre-merge
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read

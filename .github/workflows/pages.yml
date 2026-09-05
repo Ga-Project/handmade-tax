@@ -1,8 +1,24 @@
 name: Deploy to GitHub Pages
 
-# 秘密スキャン → ビルド → Pages 公開を1つの workflow で直列化する。
-# スキャンが落ちたら build は skip され、Pages には何も公開されない。
+# 検査 → ビルド → Pages 公開を1つの workflow で直列化する。
+# 検査が落ちたら build は skip され、Pages には何も公開されない。
+# 検査の中身は verify.yml（PR 側の ci.yml と共有）。main への直接 push でも
+# PR 経由でも、通るゲートが同一になる。
 
+# 起動経路は main への push だけ。手動起動（workflow_dispatch）は置かない。
+# 手動起動は「選んだ ref にある workflow 定義」で走る。つまり起動 ref を検査する
+# job を workflow の中に書いても、その job ごと削ったコピーを push したブランチを
+# 選べば検査は走らない。同じ理由で「environment を要求している」ことも、
+# その ref 側の YAML なので当てにできない。workflow の中に書いたものは
+# 何であれ、起動する側が差し替えられる。信頼していない ref から評価される定義で
+# その ref を検査する構造そのものが成立しないので、トリガ自体を持たない。
+#
+# 取り消された公開をやり直すときは、main への push で作られた run を GitHub の
+# re-run で走らせ直す。re-run は元の run の ref・commit SHA・workflow 定義をそのまま
+# 使うため、ブランチ側から差し替えられない。
+# 裏返すと、古い run を re-run するとその run のコミットが公開され、今出ているサイトが
+# 巻き戻る。公開し直したいのは常に main の先頭なので、選ぶのは main の最新の run。
+# re-run は初回実行から30日で選べなくなるため、それを過ぎたら main に空コミットを push する。
 on:
   push:
     branches: [main]
@@ -12,79 +28,46 @@ permissions:
   contents: read
 
 concurrency:
+  # 起動するのは main への push だけなので、公開はここで1本の列に直列化される。
+  # 公開中に新しい main が積まれたら、待機中の古い run は新しい run に置き換わる。
+  # Pages が持てる状態は1つだけなので、追い越されて消えるのは常に古い方でよい。
   group: pages
-  cancel-in-progress: true
+  # 進行中の公開は最後までやらせる（途中で切ると公開が中途半端な状態で終わる）。
+  cancel-in-progress: false
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # 平文シークレットの混入を全コミット履歴に対して検査する。
-  # build はこの job を needs にするため、ここで落ちると公開に進まない。
-  # ---------------------------------------------------------------------------
-  secret-scan:
-    name: Secret scan
-    runs-on: ubuntu-latest
-    env:
-      GITLEAKS_VERSION: 8.30.1
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # 全コミット履歴を走査する
-      - name: Install gitleaks (pinned)
-        run: |
-          set -euo pipefail
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
-          gitleaks version
-      - name: Scan full history
-        run: gitleaks detect --no-banner --redact
-
-  # ---------------------------------------------------------------------------
-  # 公開検査ゲート（必須）。
-  # この製品は basePath 未設定のまま公開され、HTML は 200 で返るのに CSS も JS も 404
-  # という状態で稼働していた。変換は全て JS なので、訪問者は何もできない状態だった。
-  # 生成物を読む検査は out/ が要るので、テストの前に公開と同じ条件でビルドしておく。
-  # ここでビルドしないと out/ が無く、検査が静かにスキップされたまま CI が緑になる
-  # （＝安全網があるつもりで穴が開く）。
-  # ---------------------------------------------------------------------------
+  # 秘密スキャン（全履歴 gitleaks）・公開検査・型・lint・依存監査。
+  # build はこの job を needs にするため、どれか1つでも落ちると公開に進まない。
   verify:
-    name: Test & Typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-        env:
-          NEXT_PUBLIC_BASE_PATH: /handmade-tax
-      - run: pnpm test # 生成物のアセット/URL検査と、表示↔構造化データの照合を含む
-        env:
-          # スキップを許さない。前提が崩れていたらテストとして落とす。
-          HANDMADE_TAX_REQUIRE_PUBLISH_CHECK: "1"
-      - run: pnpm typecheck
-      - run: pnpm lint
+    name: Pre-deploy
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
 
   build:
     name: Build (static export)
-    # スキャンと公開検査の両方が PASS していることが前提。fail 時は skip され公開されない。
-    needs: [secret-scan, verify]
+    # 全ての検査が PASS していることが前提。fail 時は skip され公開されない。
+    needs: verify
     runs-on: ubuntu-latest
+    # cancel-in-progress: false なので、ここが固まると公開が既定の6時間ぶん
+    # 止まる。上限を明示して詰まりを短く切る。
+    timeout-minutes: 30
     steps:
+      # actions/* は GitHub 自身が持つ組織で、ランナーや Actions サービスと同じ
+      # 信頼境界にあるため major タグのままにする。それ以外（第三者）は
+      # タグを付け替えられるので commit SHA で固定する。
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0（v4 タグの現在地）
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # プロジェクトページ（<owner>.github.io/handmade-tax/）へサブパス配信するため basePath を注入。
-      # ルート配信（ユーザー/組織ページ・カスタムドメイン）に切り替える場合はこの env を外す。
-      - run: pnpm build
-        env:
-          NEXT_PUBLIC_BASE_PATH: /handmade-tax
+      # 注入値は package.json の build:publish が持つ（ここに書くと二重管理になり、
+      # 片方だけ変えたときに検査が通ったビルドと公開するビルドが別物になる）。
+      # ルート配信（ユーザー/組織ページ・カスタムドメイン）に切り替える場合は素の build を使う。
+      - run: pnpm run build:publish
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
@@ -93,10 +76,18 @@ jobs:
     name: Deploy
     needs: build
     runs-on: ubuntu-latest
+    # actions/deploy-pages 自身の既定タイムアウト(10分)より後に来るようにする。
+    # 同値だと action の明示的なエラーより先に job が打ち切られ、結果が failure ではなく
+    # cancelled になって「公開されなかった」ことが読み取りにくくなる。
+    timeout-minutes: 15
     permissions:
       contents: read
       pages: write
       id-token: write
+    # environment 側の deployment branch policy（main のみ）は、この workflow の
+    # 外側・サーバ側で評価される多層防御。ただし「environment を要求する」宣言自体は
+    # ここの YAML なので、これ単体を ref の強制手段として当てにはしない。
+    # ref を実際に固定しているのは、起動経路を main への push だけにしてあること。
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
