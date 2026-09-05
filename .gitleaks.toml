@@ -5,7 +5,7 @@
 # 方針:
 #  - gitleaks 同梱のデフォルトルール群を継承(useDefault)
 #  - 加えて汎用 API キー/トークン/秘密鍵の検出ルールを追加
-#  - allowlist は example / test ファイルとプレースホルダのみ。実鍵は除外しない。
+#  - allowlist は example 系ファイル・age 暗号文・プレースホルダ文字列のみ。実鍵は除外しない。
 
 title = "handmade-tax gitleaks config"
 
@@ -46,7 +46,7 @@ keywords = ["bearer"]
 entropy = 3.5
 
 # ---------------------------------------------------------------------------
-# allowlist: example / test のみ。実鍵は決して除外しない。
+# allowlist: example 系ファイル・age 暗号文・プレースホルダのみ。実鍵は決して除外しない。
 # ---------------------------------------------------------------------------
 [allowlist]
 description = "Allow only example/test placeholders — never real secrets"

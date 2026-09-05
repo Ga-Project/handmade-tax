@@ -16,6 +16,8 @@ name: CI
 # 同じ名前でも中身が違う。
 # PR の無いブランチで同じ検査を回したいときは、ドラフト PR を開く。
 # pull_request の既定 types はドラフトでも走るので、公開せずに全ゲートを通せる。
+# 同じ理由で pages.yml も手動起動を持たない。手動起動は「選んだ ref にある workflow
+# 定義」で走るため、workflow の中に ref 検査を置いても、その定義ごと差し替えられる。
 
 on:
   pull_request:

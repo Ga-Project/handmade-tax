@@ -5,70 +5,41 @@ name: Deploy to GitHub Pages
 # 検査の中身は verify.yml（PR 側の ci.yml と共有）。main への直接 push でも
 # PR 経由でも、通るゲートが同一になる。
 
+# 起動経路は main への push だけ。手動起動（workflow_dispatch）は置かない。
+# 手動起動は「選んだ ref にある workflow 定義」で走る。つまり起動 ref を検査する
+# job を workflow の中に書いても、その job ごと削ったコピーを push したブランチを
+# 選べば検査は走らない。同じ理由で「environment を要求している」ことも、
+# その ref 側の YAML なので当てにできない。workflow の中に書いたものは
+# 何であれ、起動する側が差し替えられる。信頼していない ref から評価される定義で
+# その ref を検査する構造そのものが成立しないので、トリガ自体を持たない。
+#
+# 取り消された公開をやり直すときは、main への push で作られた run を GitHub の
+# re-run で走らせ直す。re-run は元の run の ref・commit SHA・workflow 定義をそのまま
+# 使うため、ブランチ側から差し替えられない。
+# 裏返すと、古い run を re-run するとその run のコミットが公開され、今出ているサイトが
+# 巻き戻る。公開し直したいのは常に main の先頭なので、選ぶのは main の最新の run。
+# re-run は初回実行から30日で選べなくなるため、それを過ぎたら main に空コミットを push する。
 on:
   push:
     branches: [main]
-  # 取り消された公開をやり直すための手動再実行。ただし workflow_dispatch は
-  # 選んだ ref に対して走るため、feature ブランチやタグを選ぶと main に入って
-  # いないコードがそのまま公開される。それを guard job で弾く（下の注意も読むこと）。
-  workflow_dispatch:
 
 # 最小権限。書き込みが要るのは deploy job のみ（下で job 単位に付与）。
 permissions:
   contents: read
 
 concurrency:
-  # ref ごとに分ける。1つの group にまとめると、main 以外を選んだ手動起動が
-  # 「待機中の main の公開」を追い出してしまう（同一 group では新しい run が
-  # 待機中の run をキャンセルする）。追い出された run は失敗ではなく cancelled で
-  # 終わるので、公開されなかったことに気づけない。
-  # 実際に deploy まで進めるのは main だけなので、公開の直列性はこれで保たれる。
-  group: pages-${{ github.ref }}
+  # 起動するのは main への push だけなので、公開はここで1本の列に直列化される。
+  # 公開中に新しい main が積まれたら、待機中の古い run は新しい run に置き換わる。
+  # Pages が持てる状態は1つだけなので、追い越されて消えるのは常に古い方でよい。
+  group: pages
   # 進行中の公開は最後までやらせる（途中で切ると公開が中途半端な状態で終わる）。
   cancel-in-progress: false
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # 公開してよい ref か（= main か）を最初に確定する。
-  # push トリガは branches: [main] で絞られているが、workflow_dispatch は絞れない。
-  # 手動起動は任意の ref を選べるので、ここを通さないと「レビューも main へのマージも
-  # 経ていないコードを公開する」経路が空いたままになる。
-  #
-  # ただしこの job は「最終防衛線ではない」。workflow_dispatch は選んだ ref にある
-  # workflow 定義で走るため、guard を削ったコピーを push したブランチを選べば
-  # guard 自体が走らない。ref を最終的に強制しているのはリポジトリ設定側、
-  # github-pages environment の deployment branch policy（main のみ）で、これは
-  # deploy job が environment を要求した時点でサーバ側で評価され、ブランチからは
-  # 書き換えられない。この設定は絶対に外さないこと。
-  # guard の役目は、その拒否を diff に残る形で明示し、無駄なビルドの前に
-  # 早く赤くすること。
-  #
-  # if: で分岐しないこと。条件付きにすると main 以外は job が skip されて
-  # 全体が緑で終わり、「公開されなかった」ことに気づけない。ここは落として赤くする。
-  # ref を ${{ }} で直接シェルに展開しないこと（ブランチ名に $ や " を含められる）。
-  # env 経由で渡す。
-  # ---------------------------------------------------------------------------
-  guard:
-    name: Ref check
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Refuse refs other than main
-        env:
-          REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          if [ "$REF" != "refs/heads/main" ]; then
-            echo "::error::公開できるのは refs/heads/main だけです（起動 ref: $REF）。main の公開をやり直す場合は main の run を re-run すること。"
-            exit 1
-          fi
-          echo "ref OK: $REF"
-
   # 秘密スキャン（全履歴 gitleaks）・公開検査・型・lint・依存監査。
   # build はこの job を needs にするため、どれか1つでも落ちると公開に進まない。
   verify:
     name: Pre-deploy
-    needs: guard
     uses: ./.github/workflows/verify.yml
     permissions:
       contents: read
@@ -78,8 +49,8 @@ jobs:
     # 全ての検査が PASS していることが前提。fail 時は skip され公開されない。
     needs: verify
     runs-on: ubuntu-latest
-    # cancel-in-progress: false なので、ここが固まると同じ ref の公開が
-    # 既定の6時間ぶん止まる。上限を明示して詰まりを短く切る。
+    # cancel-in-progress: false なので、ここが固まると公開が既定の6時間ぶん
+    # 止まる。上限を明示して詰まりを短く切る。
     timeout-minutes: 30
     steps:
       # actions/* は GitHub 自身が持つ組織で、ランナーや Actions サービスと同じ
@@ -113,8 +84,10 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    # environment 側の deployment branch policy（main のみ）が、ref を強制する
-    # 最終防衛線。guard と違ってブランチからは書き換えられない。
+    # environment 側の deployment branch policy（main のみ）は、この workflow の
+    # 外側・サーバ側で評価される多層防御。ただし「environment を要求する」宣言自体は
+    # ここの YAML なので、これ単体を ref の強制手段として当てにはしない。
+    # ref を実際に固定しているのは、起動経路を main への push だけにしてあること。
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
